@@ -16,11 +16,15 @@ trip_name = "Good Trip 2020"
 # choose icon url from http://kml4earth.appspot.com/icons.html
 icon_url = 'http://maps.google.com/mapfiles/kml/shapes/placemark_circle_highlight.png'
 
+# choose tags
+meta_tags = ['GPSInfo','DateTime','Model']
+
+# Standard Exif Tags from https://www.exiv2.org/tags.html
 tag_dict = {'GPSInfo': 34853,
             'DateTime':306,
             'Model':272}
 
-def exiftool(files,tag_ind):
+def exiftool(files,tag_inds):
 
   metadata = []
   inc = False
@@ -32,14 +36,16 @@ def exiftool(files,tag_ind):
 
     exifdata = image.getexif()
     try:
-      m = [exifdata[t] for t in tag_ind]
-      coord = m[0]
+      coord = exifdata[tag_inds[0]]
       lat = coord[2][0][0]/coord[2][0][1] 
       lat += coord[2][1][0]/coord[2][1][1]/60. 
       lat += coord[2][2][0]/coord[2][2][1]/3600.
       lon = coord[4][0][0]/coord[4][0][1]
       lon += coord[4][1][0]/coord[4][1][1]/60. 
       lon += coord[4][2][0]/coord[4][2][1]/3600.
+
+      if lat > 90. or lon > 180.:
+        print('Error: GPSInfo metadate out of range: %s' % imagename)
 
       preci = coord[2][1][1]*60.
       if preci < coord[2][2][1]*3600.:
@@ -49,21 +55,24 @@ def exiftool(files,tag_ind):
         lat = -lat
       if coord[3] == 'W':
         lon = -lon
-      coord_text = '%s, %s' % (round(lon, preci),round(lat, preci))
+
     except KeyError:
       print('Warning: No GPSInfo metadata: %s Skipped.' % imagename)
       continue
+
     try:
-      datetime = m[1]
+      datetime = exifdata[tag_inds[1]]
     except KeyError:
       print('Warning: No DateTime metadata: %s Replace by 1900:01:01 00:00:01.' % imagename)
       datetime = '1900:01:01 00:00:01'
+
     try:
-      model = m[2]
+      model = exifdata[tag_inds[2]]
     except KeyError:
       print('Warning: No Model metadata: %s Replaced by N/A.' + imagename)
-      model = 'N/A'      
-    metadata.append([imagename, coord_text, datetime, model])
+      model = 'N/A'
+
+    metadata.append([imagename, round(lon, preci), round(lat, preci), datetime, model])
     inc = True
   return metadata, inc
 
@@ -73,7 +82,7 @@ def photo2kml(files,tags):
   if not inc:
     sys.exit('Error: File not found.')
 
-  time_list = [time.strptime(m[2], "%Y:%m:%d %H:%M:%S") for m in metadata]
+  time_list = [time.strptime(m[3], "%Y:%m:%d %H:%M:%S") for m in metadata]
   sort_index = sorted(range(len(time_list)), key=lambda k: time_list[k])
 
   kml_doc = KML.kml(
@@ -93,38 +102,39 @@ def photo2kml(files,tags):
 
   for i in sort_index:
     meta = metadata[i]
-    meta[0] = meta[0][2:]
+    meta[0] = meta[0].replace('./','')
+    coord_text = '%f, %s' % (meta[1],meta[2])
+
     kml_doc.Document.append(
       KML.Placemark(
-        KML.name(meta[2]),
+        KML.name(meta[3]),
         KML.styleUrl('#{0}'.format('icon_style')),
         KML.description('Photo location'),
-        KML.Point(KML.coordinates(meta[1])),
+        KML.Point(KML.coordinates(coord_text)),
         KML.ExtendedData(
           KML.Data(KML.value(trip_name),name='Trip'),
-          KML.Data(KML.value(meta[2]),name='Time'),
-          KML.Data(KML.value(meta[3]),name='Model'),
-          KML.Data(KML.value(meta[0]),name='Name')
+          KML.Data(KML.value(meta[3]),name='Time'),
+          KML.Data(KML.value(meta[4]),name='Model'),
+          KML.Data(KML.value(meta[0]),name='Name'),
         )
       )
     )
-
-  return kml_doc
+  return kml_doc, len(sort_index)
 
 def main():
-  path = '.'
+  path = './'
   if len(sys.argv) > 1:
-    path = sys.argv[1]
+    path = sys.argv[1] + '/'
 
-  files = glob.glob(path + '/*')
-  tags = ['GPSInfo','DateTime','Model']
+  files = glob.glob(path + '*')
 
-  kml_folder = photo2kml(files,tags)
+  kml_doc, inc = photo2kml(files,meta_tags)
 
   with open(trip_name+'.kml','w') as f:
-    #print(etree.tostring(kml_folder, pretty_print=True).decode('UTF-8'))
-    f.write(etree.tostring(kml_folder, pretty_print=True).decode('UTF-8'))
-  print('photo2kml convertion finished.\n')
+    #print(etree.tostring(kml_doc, pretty_print=True).decode('UTF-8'))
+    f.write(etree.tostring(kml_doc, pretty_print=True).decode('UTF-8'))
+
+  print('photo2kml convertion finished: %d position(s).\n' % inc)
 
 if __name__ == '__main__':
   main()
