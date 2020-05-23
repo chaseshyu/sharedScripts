@@ -5,13 +5,16 @@
 #
 #  Created by Chase J. Shyu on May 23rd, 2020.
 # Environment dependency:
-#   python-pykml, PIL, 
+#   python-pykml, PIL
+
 import sys, time, glob, math
 from pykml.factory import KML_ElementMaker as KML
 from lxml import etree
 from PIL import Image
 
 trip_name = "Good Trip 2020"
+# choose icon url from http://kml4earth.appspot.com/icons.html
+icon_url = 'http://maps.google.com/mapfiles/kml/shapes/placemark_circle_highlight.png'
 
 tag_dict = {'GPSInfo': 34853,
             'DateTime':306,
@@ -22,18 +25,22 @@ def exiftool(files,tag_ind):
   metadata = []
   inc = False
   for imagename in files:
-    # read the image data using PIL
     try:
       image = Image.open(imagename)
     except IOError:
       continue
-    # extract EXIF data
+
     exifdata = image.getexif()
     try:
       m = [exifdata[t] for t in tag_ind]
       coord = m[0]
-      lat = coord[2][0][0] + coord[2][1][0]/coord[2][1][1]/60. + coord[2][2][0]/coord[2][2][1]/3600.
-      lon = coord[4][0][0] + coord[4][1][0]/coord[4][1][1]/60. + coord[4][2][0]/coord[4][2][1]/3600.
+      lat = coord[2][0][0]/coord[2][0][1] 
+      lat += coord[2][1][0]/coord[2][1][1]/60. 
+      lat += coord[2][2][0]/coord[2][2][1]/3600.
+      lon = coord[4][0][0]/coord[4][0][1]
+      lon += coord[4][1][0]/coord[4][1][1]/60. 
+      lon += coord[4][2][0]/coord[4][2][1]/3600.
+
       preci = coord[2][1][1]*60.
       if preci < coord[2][2][1]*3600.:
         preci = coord[2][2][1]*3600.
@@ -69,13 +76,28 @@ def photo2kml(files,tags):
   time_list = [time.strptime(m[2], "%Y:%m:%d %H:%M:%S") for m in metadata]
   sort_index = sorted(range(len(time_list)), key=lambda k: time_list[k])
 
-  kml = KML.Folder(KML.name(trip_name))
+  kml_doc = KML.kml(
+      KML.Document(
+          KML.name(trip_name),
+          KML.Style(
+              KML.IconStyle(
+                  KML.scale(1.),
+                  KML.Icon(
+                      KML.href(icon_url)
+                  ),
+              ),
+              id='icon_style',
+          )
+      )
+  )
+
   for i in sort_index:
     meta = metadata[i]
     meta[0] = meta[0][2:]
-    kml.append(
+    kml_doc.Document.append(
       KML.Placemark(
         KML.name(meta[2]),
+        KML.styleUrl('#{0}'.format('icon_style')),
         KML.description('Photo location'),
         KML.Point(KML.coordinates(meta[1])),
         KML.ExtendedData(
@@ -83,11 +105,11 @@ def photo2kml(files,tags):
           KML.Data(KML.value(meta[2]),name='Time'),
           KML.Data(KML.value(meta[3]),name='Model'),
           KML.Data(KML.value(meta[0]),name='Name')
-        ) 
+        )
       )
     )
 
-  return kml
+  return kml_doc
 
 def main():
   path = '.'
@@ -100,7 +122,7 @@ def main():
   kml_folder = photo2kml(files,tags)
 
   with open(trip_name+'.kml','w') as f:
-    #print(etree.tostring(fld, pretty_print=True).decode('UTF-8'))
+    #print(etree.tostring(kml_folder, pretty_print=True).decode('UTF-8'))
     f.write(etree.tostring(kml_folder, pretty_print=True).decode('UTF-8'))
   print('photo2kml convertion finished.\n')
 
