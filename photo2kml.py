@@ -3,13 +3,12 @@
 #  photo2kml.py
 #  convert photo's metadata to kml for mapping.
 #
+#  Environment dependency: python-pykml, python-pillow
+#
 #  Created by Chase J. Shyu on May 23rd, 2020.
-# Environment dependency:
-#   python-pykml, PIL
-
-import sys, time, glob, math
+#  GitHub: https://github.com/chaseshyu/sharedScripts
+import sys, time, glob, math, lxml
 from pykml.factory import KML_ElementMaker as KML
-from lxml import etree
 from PIL import Image
 
 trip_name = "Good Trip 2020"
@@ -20,12 +19,9 @@ icon_url = 'http://maps.google.com/mapfiles/kml/shapes/placemark_circle_highligh
 meta_tags = ['GPSInfo','DateTime','Model']
 
 # Standard Exif Tags from https://www.exiv2.org/tags.html
-tag_dict = {'GPSInfo': 34853,
-            'DateTime':306,
-            'Model':272}
+tag_dict = {'GPSInfo': 34853, 'DateTime':306, 'Model':272}
 
 def exiftool(files,tag_inds):
-
   metadata = []
   inc = False
   for imagename in files:
@@ -34,46 +30,36 @@ def exiftool(files,tag_inds):
     except IOError:
       continue
 
+    inc = True
     exifdata = image.getexif()
     try:
       coord = exifdata[tag_inds[0]]
-      lat = coord[2][0][0]/coord[2][0][1] 
-      lat += coord[2][1][0]/coord[2][1][1]/60. 
-      lat += coord[2][2][0]/coord[2][2][1]/3600.
-      lon = coord[4][0][0]/coord[4][0][1]
-      lon += coord[4][1][0]/coord[4][1][1]/60. 
-      lon += coord[4][2][0]/coord[4][2][1]/3600.
-
-      if lat > 90. or lon > 180.:
-        print('Error: GPSInfo metadate out of range: %s' % imagename)
-
-      preci = coord[2][1][1]*60.
-      if preci < coord[2][2][1]*3600.:
-        preci = coord[2][2][1]*3600.
-      preci = int(math.log10(preci))
-      if coord[1] == 'S':
-        lat = -lat
-      if coord[3] == 'W':
-        lon = -lon
-
+      preci = int(math.log10(max(coord[2][1][1]*60.,coord[2][2][1]*3600.)))
+      lat = round(sum([l[0]/(l[1]*60.**i) for i,l in enumerate(coord[2])]),preci)
+      lon = round(sum([l[0]/(l[1]*60.**i) for i,l in enumerate(coord[4])]),preci)
     except KeyError:
-      print('Warning: No GPSInfo metadata: %s Skipped.' % imagename)
+      print('Warning: %s no GPSInfo. Skipped.' % imagename)
       continue
+
+    if lat > 90. or lon > 180.:
+      sys.exit('Error: %s GPSInfo out of range. lon: %f lat: %f' % (imagename,lon,lat))
+
+    if coord[1] == 'S': lat = -lat
+    if coord[3] == 'W': lon = -lon
 
     try:
       datetime = exifdata[tag_inds[1]]
     except KeyError:
-      print('Warning: No DateTime metadata: %s Replace by 1900:01:01 00:00:01.' % imagename)
+      print('Warning: %s no DateTime. Replace by 1900:01:01 00:00:01.' % imagename)
       datetime = '1900:01:01 00:00:01'
 
     try:
       model = exifdata[tag_inds[2]]
     except KeyError:
-      print('Warning: No Model metadata: %s Replaced by N/A.' + imagename)
+      print('Warning: %s no Model. Replaced by N/A.' % imagename)
       model = 'N/A'
 
-    metadata.append([imagename, round(lon, preci), round(lat, preci), datetime, model])
-    inc = True
+    metadata.append([imagename, lon, lat, datetime, model])
   return metadata, inc
 
 def photo2kml(files,tags):
@@ -81,6 +67,8 @@ def photo2kml(files,tags):
   metadata, inc = exiftool(files,tag_inds)
   if not inc:
     sys.exit('Error: File not found.')
+  elif not len(metadata):
+    sys.exit('Error: GPSInfo not found in file.')
 
   time_list = [time.strptime(m[3], "%Y:%m:%d %H:%M:%S") for m in metadata]
   sort_index = sorted(range(len(time_list)), key=lambda k: time_list[k])
@@ -132,7 +120,7 @@ def main():
 
   with open(trip_name+'.kml','w') as f:
     #print(etree.tostring(kml_doc, pretty_print=True).decode('UTF-8'))
-    f.write(etree.tostring(kml_doc, pretty_print=True).decode('UTF-8'))
+    f.write(lxml.etree.tostring(kml_doc, pretty_print=True).decode('UTF-8'))
 
   print('photo2kml convertion finished: %d position(s).\n' % inc)
 
