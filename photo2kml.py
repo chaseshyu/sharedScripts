@@ -6,17 +6,21 @@
 #  Created by Chase J. Shyu on May 23rd, 2020.
 # Environment dependency:
 #   exiftool, python-pykml
-import os, time, subprocess
+import sys, os, time, subprocess
 import numpy as np
 from pykml.factory import KML_ElementMaker as KML
 from lxml import etree
 
 trip_name = "Good Trip 2020"
 
-def main():
-  cmd = 'exiftool -c \'%.7f\' -GPSPosition -csv -datetimeoriginal -Model .'
-  metadata,_ = execute(cmd)
+def main(path='./'):
+  cmd = 'exiftool -c \'%.7f\' -GPSPosition -csv -datetimeoriginal -Model ' + path
+  metadata, err = execute(cmd)
   metadata = metadata.decode('UTF-8').split('\n')[1:-1]
+
+  if len(metadata) < 1:
+    sys.exit(err.decode('UTF-8'))
+
   time_list = [time.strptime(m.split(',')[3], "%Y:%m:%d %H:%M:%S") for m in metadata]
   sort_index = sorted(range(len(time_list)), key=lambda k: time_list[k])
 
@@ -27,7 +31,6 @@ def main():
     meta[0] = meta[0][2:]
     meta[1] = meta[1].replace('"', "").replace('\'', "")
     meta[2] = meta[2].replace('"', "").replace('\'', "")
-
     fld.append(
       KML.Placemark(
         KML.name(meta[3]),
@@ -41,10 +44,10 @@ def main():
         ) 
       )
     )
-
   with open(trip_name+'.kml','w') as f:
     #print(etree.tostring(fld, pretty_print=True).decode('UTF-8'))
     f.write(etree.tostring(fld, pretty_print=True).decode('UTF-8'))
+  print('photo2kml convertion finished.\n')
 
 def execute(cmd):
   cmd = cmd.split(" ")
@@ -54,5 +57,8 @@ def execute(cmd):
   return out, err
 
 if __name__ == '__main__':
-  main()
+  path = './'
+  if len(sys.argv) > 1:
+    path = sys.argv[1]
+  main(path)
 
